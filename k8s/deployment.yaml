@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratdo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ratdo
+  template:
+    metadata:
+      labels:
+        app: ratdo
+    spec:
+      containers:
+      - name: ratdo
+        image: your-docker-repo/ratdo:latest
+        ports:
+        - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratdo
+spec:
+  selector:
+    app: ratdo
+  ports:
+  - port: 80
+    targetPort: 5000
+  type: LoadBalancer
