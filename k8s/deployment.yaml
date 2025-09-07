@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: ratdo
-        image: your-docker-repo/ratdo:latest
+        image: unclerat/ratdo:latest
         ports:
         - containerPort: 5000
 ---
