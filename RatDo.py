@@ -19,6 +19,7 @@ from flask import Flask, g, request, redirect, url_for, render_template_string, 
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from pathlib import Path
 
 APP_NAME = "RatTasks"
 DATABASE = "todo.db"
@@ -236,8 +237,8 @@ def logout():
 
 @app.route('/guide')
 def guide():
-    with open('ExploitGuide.html', 'r', encoding='utf-8') as f:
-        guide_html = f.read()
+    guide_path = Path(__file__).with_name('ExploitGuide.html')
+    guide_html = guide_path.read_text(encoding='utf-8')
     body = f"<h1 class='text-3xl font-bold mb-6'>Explotation Guide</h1><div class='space-y-4'>{guide_html}</div>"
     return render_template_string(
         BASE,
