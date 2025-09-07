@@ -236,10 +236,17 @@ def logout():
 
 @app.route('/guide')
 def guide():
-    with open('ExploitGuide.md', 'r', encoding='utf-8') as f:
-        md = f.read()
-    body = f"<h1 class='text-3xl font-bold mb-6'>Explotation Guide</h1><pre class='bg-white p-4 rounded-2xl shadow whitespace-pre-wrap'>{md}</pre>"
-    return render_template_string(BASE, title=f"Explotation Guide • {APP_NAME}", body=body, app_name=APP_NAME, uid=current_user_id(), username=session.get('uname'))
+    with open('ExploitGuide.html', 'r', encoding='utf-8') as f:
+        guide_html = f.read()
+    body = f"<h1 class='text-3xl font-bold mb-6'>Explotation Guide</h1><div class='space-y-4'>{guide_html}</div>"
+    return render_template_string(
+        BASE,
+        title=f"Explotation Guide • {APP_NAME}",
+        body=body,
+        app_name=APP_NAME,
+        uid=current_user_id(),
+        username=session.get('uname'),
+    )
 
 # ------------------------ Routes: Tasks ------------------------
 
@@ -271,7 +278,7 @@ def index():
         <li class='group flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 hover:shadow-sm transition'>
           <div class='flex items-center gap-3'>
             <input type='checkbox' onclick="window.location='{url_for('toggle', task_id=row['id'])}'" {'checked' if row['done'] else ''} class='h-4 w-4 rounded border-slate-300' />
-            <span class='{'line-through text-slate-400' if row['done'] else 'text-slate-800'}'>{{{{ (""" + row['title'] + """) | safe }}}}</span>
+            <span class='{'line-through text-slate-400' if row['done'] else 'text-slate-800'}'>{row['title']}</span>
             {'<span class="text-xs text-slate-500">🌐</span>' if row['public'] else ''}
           </div>
             <div class='opacity-0 group-hover:opacity-100 transition flex items-center gap-2'>
