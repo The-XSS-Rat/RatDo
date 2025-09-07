@@ -18,7 +18,7 @@
 from flask import Flask, g, request, redirect, url_for, render_template_string, session, flash
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 
 APP_NAME = "RatTasks"
 DATABASE = "todo.db"
@@ -26,6 +26,8 @@ SECRET = "dev-secret-change-me"  # change in prod
 
 app = Flask(__name__)
 app.config.update(SECRET_KEY=SECRET)
+
+LAST_CLEANUP = datetime.utcnow()
 
 # ------------------------ DB Helpers ------------------------
 
@@ -62,6 +64,16 @@ def init_db():
         """
     )
     db.commit()
+
+
+@app.before_request
+def auto_clear_tasks():
+    global LAST_CLEANUP
+    if datetime.utcnow() - LAST_CLEANUP > timedelta(minutes=30):
+        db = get_db()
+        db.execute('DELETE FROM tasks')
+        db.commit()
+        LAST_CLEANUP = datetime.utcnow()
 
 # ------------------------ Utilities ------------------------
 
@@ -101,6 +113,7 @@ BASE = """
       <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
         <a href="{{ url_for('index') }}" class="text-xl font-extrabold tracking-tight">🐀 {{ app_name }}</a>
         <nav class="flex items-center gap-3 text-sm">
+          <a href="{{ url_for('guide') }}" class="px-3 py-1 rounded-lg border border-slate-300 hover:bg-white">Explotation Guide</a>
           {% if uid %}
             <span class="text-slate-600">Hi, <strong>{{ username }}</strong></span>
             <a href="{{ url_for('logout') }}" class="px-3 py-1 rounded-lg bg-slate-900 text-white hover:bg-slate-800">Logout</a>
@@ -213,6 +226,14 @@ def logout():
     flash('Logged out.', 'ok')
     return redirect(url_for('login'))
 
+
+@app.route('/guide')
+def guide():
+    with open('ExploitGuide.md', 'r', encoding='utf-8') as f:
+        md = f.read()
+    body = f"<h1 class='text-3xl font-bold mb-6'>Explotation Guide</h1><pre class='bg-white p-4 rounded-2xl shadow whitespace-pre-wrap'>{md}</pre>"
+    return render_template_string(BASE, title=f"Explotation Guide • {APP_NAME}", body=body, app_name=APP_NAME, uid=current_user_id(), username=session.get('uname'))
+
 # ------------------------ Routes: Tasks ------------------------
 
 @app.route('/', methods=['GET', 'POST'])
@@ -241,20 +262,21 @@ def index():
             <input type='checkbox' onclick="window.location='{url_for('toggle', task_id=row['id'])}'" {'checked' if row['done'] else ''} class='h-4 w-4 rounded border-slate-300' />
             <span class='{'line-through text-slate-400' if row['done'] else 'text-slate-800'}'>{{{{ (""" + row['title'] + """) | safe }}}}</span>
           </div>
-          <div class='opacity-0 group-hover:opacity-100 transition flex items-center gap-2'>
-            <a class='px-2 py-1 text-xs rounded-lg border' href='{url_for('edit', task_id=row['id'])}'>Edit</a>
-            <a class='px-2 py-1 text-xs rounded-lg border border-red-300 text-red-700' href='{url_for('delete', task_id=row['id'])}'>Delete</a>
-          </div>
+            <div class='opacity-0 group-hover:opacity-100 transition flex items-center gap-2'>
+              <a class='px-2 py-1 text-xs rounded-lg border' href='{url_for('edit', task_id=row['id'])}'>Edit</a>
+              <a class='px-2 py-1 text-xs rounded-lg border border-red-300 text-red-700' href='/delete/{row['id']}'>Delete</a>
+            </div>
         </li>
         """ for row in tasks
     ])
 
     body = f"""
     <div class='flex items-center justify-between mb-6'>
-      <div>
-        <h1 class='text-3xl font-extrabold'>Your tasks</h1>
-        <p class='text-slate-600'>Quick, clean, and a little bit dangerous (for learning 😉).</p>
-      </div>
+        <div>
+          <h1 class='text-3xl font-extrabold'>Your tasks</h1>
+          <p class='text-slate-600'>Quick, clean, and a little bit dangerous (for learning 😉).</p>
+          <p class='text-slate-500 text-sm'>All tasks are cleared every 30 minutes.</p>
+        </div>
       <a href='{url_for('seed_demo')}' class='text-sm underline'>Seed demo tasks</a>
     </div>
 
