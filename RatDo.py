@@ -18,7 +18,7 @@
 from flask import Flask, g, request, redirect, url_for, render_template_string, session, flash
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 
 APP_NAME = "RatTasks"
 DATABASE = "todo.db"
@@ -26,6 +26,8 @@ SECRET = "dev-secret-change-me"  # change in prod
 
 app = Flask(__name__)
 app.config.update(SECRET_KEY=SECRET)
+
+LAST_CLEANUP = datetime.utcnow()
 
 # ------------------------ DB Helpers ------------------------
 
@@ -56,12 +58,28 @@ def init_db():
             user_id INTEGER NOT NULL,
             title TEXT NOT NULL,
             done INTEGER NOT NULL DEFAULT 0,
+            public INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
         """
     )
     db.commit()
+    try:
+        db.execute('ALTER TABLE tasks ADD COLUMN public INTEGER NOT NULL DEFAULT 0')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
+
+@app.before_request
+def auto_clear_tasks():
+    global LAST_CLEANUP
+    if datetime.utcnow() - LAST_CLEANUP > timedelta(minutes=30):
+        db = get_db()
+        db.execute('DELETE FROM tasks')
+        db.commit()
+        LAST_CLEANUP = datetime.utcnow()
 
 # ------------------------ Utilities ------------------------
 
@@ -101,6 +119,8 @@ BASE = """
       <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
         <a href="{{ url_for('index') }}" class="text-xl font-extrabold tracking-tight">🐀 {{ app_name }}</a>
         <nav class="flex items-center gap-3 text-sm">
+          <a href="{{ url_for('guide') }}" class="px-3 py-1 rounded-lg border border-slate-300 hover:bg-white">Explotation Guide</a>
+          <a href="{{ url_for('feed') }}" class="px-3 py-1 rounded-lg border border-slate-300 hover:bg-white">Feed</a>
           {% if uid %}
             <span class="text-slate-600">Hi, <strong>{{ username }}</strong></span>
             <a href="{{ url_for('logout') }}" class="px-3 py-1 rounded-lg bg-slate-900 text-white hover:bg-slate-800">Logout</a>
@@ -213,6 +233,14 @@ def logout():
     flash('Logged out.', 'ok')
     return redirect(url_for('login'))
 
+
+@app.route('/guide')
+def guide():
+    with open('ExploitGuide.md', 'r', encoding='utf-8') as f:
+        md = f.read()
+    body = f"<h1 class='text-3xl font-bold mb-6'>Explotation Guide</h1><pre class='bg-white p-4 rounded-2xl shadow whitespace-pre-wrap'>{md}</pre>"
+    return render_template_string(BASE, title=f"Explotation Guide • {APP_NAME}", body=body, app_name=APP_NAME, uid=current_user_id(), username=session.get('uname'))
+
 # ------------------------ Routes: Tasks ------------------------
 
 @app.route('/', methods=['GET', 'POST'])
@@ -223,10 +251,14 @@ def index():
 
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
+        is_public = 1 if request.form.get('public') else 0
         if not title:
             flash('Task title required.', 'warning')
             return redirect(url_for('index'))
-        db.execute('INSERT INTO tasks (user_id, title, created_at) VALUES (?, ?, ?)', (uid, title, datetime.utcnow().isoformat()))
+        db.execute(
+            'INSERT INTO tasks (user_id, title, public, created_at) VALUES (?, ?, ?, ?)',
+            (uid, title, is_public, datetime.utcnow().isoformat())
+        )
         db.commit()
         flash('Task added.', 'ok')
         return redirect(url_for('index'))
@@ -240,26 +272,31 @@ def index():
           <div class='flex items-center gap-3'>
             <input type='checkbox' onclick="window.location='{url_for('toggle', task_id=row['id'])}'" {'checked' if row['done'] else ''} class='h-4 w-4 rounded border-slate-300' />
             <span class='{'line-through text-slate-400' if row['done'] else 'text-slate-800'}'>{{{{ (""" + row['title'] + """) | safe }}}}</span>
+            {'<span class="text-xs text-slate-500">🌐</span>' if row['public'] else ''}
           </div>
-          <div class='opacity-0 group-hover:opacity-100 transition flex items-center gap-2'>
-            <a class='px-2 py-1 text-xs rounded-lg border' href='{url_for('edit', task_id=row['id'])}'>Edit</a>
-            <a class='px-2 py-1 text-xs rounded-lg border border-red-300 text-red-700' href='{url_for('delete', task_id=row['id'])}'>Delete</a>
-          </div>
+            <div class='opacity-0 group-hover:opacity-100 transition flex items-center gap-2'>
+              <a class='px-2 py-1 text-xs rounded-lg border' href='/edit/{row['id']}'>Edit</a>
+              <a class='px-2 py-1 text-xs rounded-lg border border-red-300 text-red-700' href='/delete/{row['id']}'>Delete</a>
+            </div>
         </li>
         """ for row in tasks
     ])
 
     body = f"""
     <div class='flex items-center justify-between mb-6'>
-      <div>
-        <h1 class='text-3xl font-extrabold'>Your tasks</h1>
-        <p class='text-slate-600'>Quick, clean, and a little bit dangerous (for learning 😉).</p>
-      </div>
+        <div>
+          <h1 class='text-3xl font-extrabold'>Your tasks</h1>
+          <p class='text-slate-600'>Quick, clean, and a little bit dangerous (for learning 😉).</p>
+          <p class='text-slate-500 text-sm'>All tasks are cleared every 30 minutes.</p>
+        </div>
       <a href='{url_for('seed_demo')}' class='text-sm underline'>Seed demo tasks</a>
     </div>
 
     <form method='post' class='mb-6 bg-white p-4 rounded-2xl shadow flex items-center gap-3'>
       <input name='title' class='flex-1 rounded-xl border border-slate-300 px-3 py-2' placeholder='Write a task… (try <script>alert(1)</script>)' />
+      <label class='flex items-center gap-2 text-sm'>
+        <input type='checkbox' name='public' class='rounded border-slate-300' /> Public
+      </label>
       <button class='rounded-xl bg-slate-900 text-white px-4 py-2 font-semibold hover:bg-slate-800'>Add</button>
     </form>
 
@@ -269,6 +306,52 @@ def index():
     """
 
     return render_template_string(BASE, title=f"Tasks • {APP_NAME}", body=body, app_name=APP_NAME, uid=uid, username=session.get('uname'))
+
+@app.route('/feed')
+def feed():
+    db = get_db()
+    uid = current_user_id()
+    page = max(int(request.args.get('page', 1) or 1), 1)
+    per_page = 10
+    offset = (page - 1) * per_page
+
+    query = "SELECT tasks.*, users.username FROM tasks JOIN users ON tasks.user_id = users.id WHERE tasks.public = 1"
+    params = []
+    if uid:
+        query += " AND tasks.user_id != ?"
+        params.append(uid)
+    query += " ORDER BY tasks.id DESC LIMIT ? OFFSET ?"
+    params.extend([per_page + 1, offset])
+    rows = db.execute(query, params).fetchall()
+    has_next = len(rows) > per_page
+    rows = rows[:per_page]
+
+    items_html = "\n".join([
+        f"""
+      <li class='p-3 bg-white rounded-xl border border-slate-200'>
+        <div class='flex items-center justify-between'>
+          <span class='text-slate-800'>{{{{ (""" + row['title'] + """) | safe }}}}</span>
+          <span class='text-slate-500 text-sm'>@{row['username']}</span>
+        </div>
+      </li>
+      """ for row in rows
+    ])
+
+    nav_html = ""
+    if page > 1 or has_next:
+        prev_link = f"<a href='/feed?page={page-1}' class='underline'>Prev</a>" if page > 1 else "<span></span>"
+        next_link = f"<a href='/feed?page={page+1}' class='underline'>Next</a>" if has_next else ""
+        nav_html = f"<div class='flex justify-between mt-6'>{prev_link}{next_link}</div>"
+
+    body = f"""
+    <h1 class='text-3xl font-extrabold mb-6'>Public feed</h1>
+    <ul class='space-y-2'>
+      {items_html or "<li class='text-slate-500'>No public tasks.</li>"}
+    </ul>
+    {nav_html}
+    """
+
+    return render_template_string(BASE, title=f"Feed • {APP_NAME}", body=body, app_name=APP_NAME, uid=uid, username=session.get('uname'))
 
 @app.route('/toggle/<int:task_id>')
 @login_required
@@ -303,10 +386,11 @@ def edit(task_id):
 
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
+        is_public = 1 if request.form.get('public') else 0
         if not title:
             flash('Title required.', 'warning')
             return redirect(url_for('edit', task_id=task_id))
-        db.execute('UPDATE tasks SET title = ? WHERE id = ?', (title, task_id))
+        db.execute('UPDATE tasks SET title = ?, public = ? WHERE id = ?', (title, is_public, task_id))
         db.commit()
         flash('Task updated.', 'ok')
         return redirect(url_for('index'))
@@ -318,6 +402,10 @@ def edit(task_id):
         <div>
           <label class='block text-sm font-medium mb-1'>Title</label>
           <input name='title' value='{row['title']}' class='w-full rounded-xl border border-slate-300 px-3 py-2' />
+        </div>
+        <div class='flex items-center gap-2 text-sm'>
+          <input type='checkbox' name='public' {'checked' if row['public'] else ''} class='rounded border-slate-300' />
+          <span>Public</span>
         </div>
         <div class='flex items-center gap-3'>
           <a href='{url_for('index')}' class='px-4 py-2 rounded-xl border'>Cancel</a>
