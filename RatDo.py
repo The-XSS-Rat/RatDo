@@ -125,6 +125,13 @@ BASE = """
     </style>
   </head>
   <body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+
+    <!-- ⚠️ DEMO LAB BANNER -->
+    <div class="bg-red-600 text-white py-3 px-4 text-center z-20 relative">
+      <p class="text-lg font-extrabold tracking-wide">⚠️  INTENTIONALLY VULNERABLE DEMO LAB — DESIGNED TO BE HACKED  ⚠️</p>
+      <p class="text-sm mt-1 opacity-90">This application contains deliberate security flaws (XSS, IDOR, CSRF, Clickjacking). <strong>Do NOT deploy to production.</strong> Use only in isolated lab environments for educational purposes.</p>
+    </div>
+
     <header class="sticky top-0 backdrop-blur bg-white/70 border-b border-slate-200 z-10">
       <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
         <a href="{{ url_for('index') }}" class="text-xl font-extrabold tracking-tight">🐀 {{ app_name }}</a>
@@ -826,19 +833,135 @@ def edit(task_id):
 
 # ------------------------ Demo Seeder ------------------------
 
+DEMO_TASKS = [
+    # ── LAB 0: intro banner ────────────────────────────────────────────────
+    {
+        "title": (
+            "<div class='my-1 p-4 bg-red-50 border-2 border-red-500 rounded-xl'>"
+            "<p class='font-extrabold text-red-700 text-lg'>🚨 DEMO LAB — DESIGNED TO BE HACKED</p>"
+            "<p class='text-red-600 text-sm mt-1'>Welcome to RatTasks, an intentionally vulnerable Flask application "
+            "built for security training. Each task below is a step-by-step guide to a real exploit. "
+            "Work through them in order, check them off as you go, and read the "
+            "<a href='/guide' class='underline font-semibold'>Exploitation Guide</a> for full details.</p>"
+            "</div>"
+        ),
+        "public": 0,
+    },
+    # ── LAB 1: Stored XSS ─────────────────────────────────────────────────
+    {
+        "title": (
+            "<div class='my-1 p-3 bg-blue-50 border border-blue-400 rounded-xl'>"
+            "<p class='font-bold text-blue-700'>🎯 LAB 1 · Stored XSS in Task Title</p>"
+            "<ol class='list-decimal ml-5 text-sm text-slate-700 mt-2 space-y-1'>"
+            "<li>In the <strong>Add task</strong> field above, paste: "
+            "<code class='bg-slate-100 px-1 rounded'>&lt;script&gt;alert('XSS')&lt;/script&gt;</code> "
+            "and click <strong>Add</strong>.</li>"
+            "<li>Reload the page — an alert box fires because the title is rendered with <code>|safe</code>.</li>"
+            "<li>Try alternative payloads: "
+            "<code class='bg-slate-100 px-1 rounded'>&lt;img src=x onerror=alert(2)&gt;</code> "
+            "or <code class='bg-slate-100 px-1 rounded'>&lt;svg/onload=alert(3)&gt;</code>.</li>"
+            "<li><em>Bonus:</em> embed a <code>fetch('/edit/1', …)</code> call inside the script to "
+            "make an authenticated POST using the victim's session.</li>"
+            "</ol></div>"
+        ),
+        "public": 0,
+    },
+    # ── LAB 2: IDOR / Broken Access Control ───────────────────────────────
+    {
+        "title": (
+            "<div class='my-1 p-3 bg-purple-50 border border-purple-400 rounded-xl'>"
+            "<p class='font-bold text-purple-700'>🔓 LAB 2 · IDOR / Broken Access Control</p>"
+            "<ol class='list-decimal ml-5 text-sm text-slate-700 mt-2 space-y-1'>"
+            "<li>Register a second account (<strong>User B</strong>) in another browser or incognito tab, "
+            "add a task, and note its ID from the URL when you click Edit.</li>"
+            "<li>Back in your original session, visit "
+            "<code class='bg-slate-100 px-1 rounded'>http://127.0.0.1:5000/edit/&lt;victim_id&gt;</code>. "
+            "You will see User B's task with no ownership check.</li>"
+            "<li>Change the title and click <strong>Save</strong> — you just edited someone else's task!</li>"
+            "<li>Try: <code class='bg-slate-100 px-1 rounded'>/delete/&lt;id&gt;</code> and "
+            "<code class='bg-slate-100 px-1 rounded'>/toggle/&lt;id&gt;</code> to delete or flip "
+            "another user's completion status.</li>"
+            "<li>Use the bulk-tampering Python script in the <a href='/guide' class='underline'>Exploitation Guide</a> "
+            "(section 9) to automate edits across 100 IDs at once.</li>"
+            "</ol></div>"
+        ),
+        "public": 0,
+    },
+    # ── LAB 3: CSRF ───────────────────────────────────────────────────────
+    {
+        "title": (
+            "<div class='my-1 p-3 bg-yellow-50 border border-yellow-400 rounded-xl'>"
+            "<p class='font-bold text-yellow-700'>🪝 LAB 3 · Cross-Site Request Forgery (CSRF)</p>"
+            "<ol class='list-decimal ml-5 text-sm text-slate-700 mt-2 space-y-1'>"
+            "<li>Stay logged in to RatTasks, then open a <strong>new browser tab</strong> and create a "
+            "local file <code class='bg-slate-100 px-1 rounded'>csrf-add.html</code> with:<br>"
+            "<code class='bg-slate-100 px-1 rounded text-xs'>"
+            "&lt;form action=&quot;http://127.0.0.1:5000/&quot; method=&quot;POST&quot; id=&quot;f&quot;&gt;"
+            "&lt;input name=&quot;title&quot; value=&quot;CSRF task!&quot;&gt;&lt;/form&gt;"
+            "&lt;script&gt;f.submit();&lt;/script&gt;"
+            "</code></li>"
+            "<li>Open that file in the browser — a new task appears in your RatTasks account.</li>"
+            "<li>Because <code>/delete/&lt;id&gt;</code> uses GET, a hidden "
+            "<code class='bg-slate-100 px-1 rounded'>&lt;img src=&quot;/delete/1&quot;&gt;</code> "
+            "in any page deletes tasks silently.</li>"
+            "<li>Read the <a href='/guide' class='underline'>Exploitation Guide</a> section 11 "
+            "to see CSRF chained with IDOR for maximum blast radius.</li>"
+            "</ol></div>"
+        ),
+        "public": 0,
+    },
+    # ── LAB 4: Clickjacking ───────────────────────────────────────────────
+    {
+        "title": (
+            "<div class='my-1 p-3 bg-green-50 border border-green-400 rounded-xl'>"
+            "<p class='font-bold text-green-700'>🖱️ LAB 4 · Clickjacking (No Frame Protections)</p>"
+            "<ol class='list-decimal ml-5 text-sm text-slate-700 mt-2 space-y-1'>"
+            "<li>Create a local file <code class='bg-slate-100 px-1 rounded'>clickjack.html</code>:<br>"
+            "<code class='bg-slate-100 px-1 rounded text-xs'>"
+            "&lt;style&gt;iframe{position:absolute;top:0;left:0;width:100vw;height:100vh;opacity:.1}"
+            "button{position:absolute;top:120px;left:120px;padding:20px}&lt;/style&gt;"
+            "&lt;button&gt;FREE COFFEE ☕&lt;/button&gt;"
+            "&lt;iframe src=&quot;http://127.0.0.1:5000/delete/1&quot;&gt;&lt;/iframe&gt;"
+            "</code></li>"
+            "<li>Open the file while logged in to RatTasks.</li>"
+            "<li>Click the visible <em>FREE COFFEE</em> button — you actually clicked the hidden delete link underneath.</li>"
+            "<li>Fix: add <code class='bg-slate-100 px-1 rounded'>X-Frame-Options: DENY</code> or a strict CSP.</li>"
+            "</ol></div>"
+        ),
+        "public": 0,
+    },
+    # ── LAB 5: XSS Worm via Public Feed ───────────────────────────────────
+    {
+        "title": (
+            "<div class='my-1 p-3 bg-orange-50 border border-orange-400 rounded-xl'>"
+            "<p class='font-bold text-orange-700'>🐛 LAB 5 · Stored XSS Worm via Public Feed</p>"
+            "<ol class='list-decimal ml-5 text-sm text-slate-700 mt-2 space-y-1'>"
+            "<li>Use Lab 2 to set another user's task as <strong>public</strong> via the IDOR.</li>"
+            "<li>Edit that public task and replace its title with a <code>&lt;script&gt;</code> that calls "
+            "<code>fetch('/', {method:'POST', …})</code> to create new tasks in any logged-in viewer's account.</li>"
+            "<li>Open <code class='bg-slate-100 px-1 rounded'>/feed</code> in a second browser — the script "
+            "runs and propagates itself automatically.</li>"
+            "<li>This is a <strong>self-replicating XSS worm</strong>: one infected entry spreads to all viewers.</li>"
+            "</ol></div>"
+        ),
+        "public": 1,
+    },
+]
+
+
 @app.route('/seed-demo')
 @login_required
 def seed_demo():
     db = get_db()
     uid = current_user_id()
-    seeds = [
-        (uid, "Welcome to <b>RatTasks</b>!", datetime.utcnow().isoformat()),
-        (uid, "This one is <i>italic</i>.", datetime.utcnow().isoformat()),
-        (uid, "Try a harmless script: <script>alert('XSS')</script>", datetime.utcnow().isoformat()),
-    ]
-    db.executemany('INSERT INTO tasks (user_id, title, created_at) VALUES (?, ?, ?)', seeds)
+    now = datetime.utcnow().isoformat()
+    for task in DEMO_TASKS:
+        db.execute(
+            'INSERT INTO tasks (user_id, title, public, created_at) VALUES (?, ?, ?, ?)',
+            (uid, task["title"], task["public"], now),
+        )
     db.commit()
-    flash('Seeded a few tasks (including an XSS demo).', 'ok')
+    flash('Demo tasks seeded! Work through each LAB challenge step by step.', 'ok')
     return redirect(url_for('index'))
 
 # ------------------------ App Entry ------------------------
